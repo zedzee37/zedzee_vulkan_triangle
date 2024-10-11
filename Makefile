@@ -13,5 +13,5 @@ clean:
 	rm -f VulkanTest
 
 shader:
-	glslc -fshader-stage=vertex shaders/vert.glsl -o shaders/vert.spv
-	glslc -fshader-stage=fragment shaders/frag.glsl -o shaders/frag.spv
+	glslc shaders/tri.vert -o shaders/vert.spv
+	glslc shaders/tri.frag -o shaders/frag.spv
