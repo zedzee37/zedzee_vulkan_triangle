@@ -1464,18 +1464,18 @@ private:
 		VkDeviceSize vertexOffset = 0;
 		VkDeviceSize indexOffset = 0;
 
+		VkBuffer vertexBuffers[] = { vertexBuffer };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
 		for (const ModelInfo &modelInfo : models) {
-			VkBuffer vertexBuffers[] = { vertexBuffer };
-			VkDeviceSize offsets[] = { vertexOffset };
-			vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-			vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indexOffset, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(commandBuffer, modelInfo.indexCount, 1, indexOffset, vertexOffset, 0);
 
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-
-			vkCmdDrawIndexed(commandBuffer, modelInfo.indexCount, 1, 0, 0, 0);
-
-			vertexOffset += modelInfo.vertexCount * sizeof(Vertex);
-			indexOffset += modelInfo.indexCount * sizeof(uint32_t);
+			vertexOffset += modelInfo.vertexCount;
+			indexOffset += modelInfo.indexCount;
 		}
 
 		vkCmdEndRenderPass(commandBuffer);
