@@ -10,22 +10,25 @@
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_structs.hpp>
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+
 #define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
+
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
+
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
-#include <unordered_map>
 
 #include <chrono>
-
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -33,6 +36,7 @@
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <unordered_map>
 #include <vector>
 
 const uint32_t WIDTH = 800;
@@ -41,9 +45,13 @@ const uint32_t HEIGHT = 600;
 const std::string MODEL_PATH = "models/viking_room.obj";
 const std::string TEXTURE_PATH = "textures/viking_room.png";
 
-const std::vector<const char *> validationLayers = {
-	"VK_LAYER_KHRONOS_validation"
-};
+const std::vector<std::string> MODELS = { "models/viking_room.obj", "models/wheelchair.obj" };
+const std::vector<std::string> TEXTURES = { "textures/viking_room.png", "" };
+
+const std::vector<const char *>
+		validationLayers = {
+			"VK_LAYER_KHRONOS_validation"
+		};
 
 const std::vector<const char *> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME
@@ -90,6 +98,11 @@ std::vector<char> readFile(const std::string &filePath) {
 
 	return buffer;
 }
+
+struct ModelInfo {
+	uint32_t vertexCount;
+	uint32_t indexCount;
+};
 
 struct Vertex {
 	glm::vec3 pos;
@@ -204,6 +217,7 @@ private:
 
 	std::vector<VkFramebuffer> swapChainFramebuffers;
 
+	std::vector<ModelInfo> models;
 	std::vector<Vertex> vertices;
 	std::vector<uint32_t> indices;
 	VkBuffer vertexBuffer;
@@ -259,7 +273,7 @@ private:
 		createTextureImage();
 		createTextureImageView();
 		createTextureSampler();
-		loadModel();
+		loadModels();
 		createVertexBuffer();
 		createIndexBuffer();
 		createUniformBuffers();
@@ -872,42 +886,54 @@ private:
 		}
 	}
 
-	void loadModel() {
-		tinyobj::attrib_t attrib;
-		std::vector<tinyobj::shape_t> shapes;
-		std::vector<tinyobj::material_t> materials;
-		std::string warn, err;
+	void loadModels() {
+		for (const std::string &modelPath : MODELS) {
+			tinyobj::attrib_t attrib;
+			std::vector<tinyobj::shape_t> shapes;
+			std::vector<tinyobj::material_t> materials;
+			std::string warn, err;
 
-		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str())) {
-			throw std::runtime_error(warn + err);
-		}
-
-		std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
-		for (const auto &shape : shapes) {
-			for (const auto &index : shape.mesh.indices) {
-				Vertex vertex{};
-
-				vertex.pos = {
-					attrib.vertices[3 * index.vertex_index + 0],
-					attrib.vertices[3 * index.vertex_index + 1],
-					attrib.vertices[3 * index.vertex_index + 2]
-				};
-
-				vertex.texCoord = {
-					attrib.texcoords[2 * index.texcoord_index + 0],
-					1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-				};
-
-				vertex.color = { 1.0f, 1.0f, 1.0f };
-
-				if (uniqueVertices.count(vertex) == 0) {
-					uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-					vertices.push_back(vertex);
-				}
-
-				indices.push_back(uniqueVertices[vertex]);
+			if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelPath.c_str())) {
+				throw std::runtime_error(warn + err);
 			}
+
+			std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+			std::vector<Vertex> modelVertices;
+			std::vector<uint32_t> modelIndices;
+
+			for (const auto &shape : shapes) {
+				for (const auto &index : shape.mesh.indices) {
+					Vertex vertex{};
+
+					vertex.pos = {
+						attrib.vertices[3 * index.vertex_index + 0],
+						attrib.vertices[3 * index.vertex_index + 1],
+						attrib.vertices[3 * index.vertex_index + 2]
+					};
+
+					vertex.texCoord = {
+						attrib.texcoords[2 * index.texcoord_index + 0],
+						1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
+					};
+
+					vertex.color = { 1.0f, 1.0f, 1.0f };
+
+					if (uniqueVertices.count(vertex) == 0) {
+						uniqueVertices[vertex] = static_cast<uint32_t>(modelVertices.size());
+						modelVertices.push_back(vertex);
+					}
+
+					modelIndices.push_back(uniqueVertices[vertex]);
+				}
+			}
+
+			ModelInfo modelInfo{};
+			modelInfo.vertexCount = static_cast<uint32_t>(modelVertices.size());
+			modelInfo.indexCount = static_cast<uint32_t>(modelIndices.size());
+			models.push_back(modelInfo);
+
+			vertices.insert(vertices.end(), modelVertices.begin(), modelVertices.end());
+			indices.insert(indices.end(), modelIndices.begin(), modelIndices.end());
 		}
 	}
 
@@ -1435,13 +1461,22 @@ private:
 		scissor.extent = swapChainExtent;
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-		VkBuffer vertexBuffers[] = { vertexBuffer };
-		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+		VkDeviceSize vertexOffset = 0;
+		VkDeviceSize indexOffset = 0;
 
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+		for (const ModelInfo &modelInfo : models) {
+			VkBuffer vertexBuffers[] = { vertexBuffer };
+			VkDeviceSize offsets[] = { vertexOffset };
+			vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+			vkCmdBindIndexBuffer(commandBuffer, indexBuffer, indexOffset, VK_INDEX_TYPE_UINT32);
+
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+
+			vkCmdDrawIndexed(commandBuffer, modelInfo.indexCount, 1, 0, 0, 0);
+
+			vertexOffset += modelInfo.vertexCount * sizeof(Vertex);
+			indexOffset += modelInfo.indexCount * sizeof(uint32_t);
+		}
 
 		vkCmdEndRenderPass(commandBuffer);
 
