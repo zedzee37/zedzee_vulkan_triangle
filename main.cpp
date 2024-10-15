@@ -682,7 +682,22 @@ private:
 		samplerLayoutBinding.pImmutableSamplers = nullptr;
 		samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-		std::array<VkDescriptorSetLayoutBinding, 2> bindings = { uboLayoutBinding, samplerLayoutBinding };
+		VkDescriptorSetLayoutBinding samplerLayoutBindings{};
+		samplerLayoutBindings.binding = 1;
+		samplerLayoutBindings.descriptorCount = static_cast<uint32_t>(TEXTURES.size());
+		samplerLayoutBindings.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		samplerLayoutBindings.pImmutableSamplers = nullptr;
+		samplerLayoutBindings.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+		VkDescriptorBindingFlagsEXT bindingFlags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+
+		VkDescriptorSetLayoutBindingFlagsCreateInfoEXT bindingFlagsCreateInfo{};
+		bindingFlagsCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT;
+		bindingFlagsCreateInfo.bindingCount = 1;
+		bindingFlagsCreateInfo.pBindingFlags = &bindingFlags;
+
+		std::array<VkDescriptorSetLayoutBinding, 2>
+				bindings = { uboLayoutBinding, samplerLayoutBinding };
 		VkDescriptorSetLayoutCreateInfo layoutInfo{};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 		layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
