@@ -230,9 +230,9 @@ private:
 	std::vector<VkDeviceMemory> textureImagesMemory;
 	std::vector<VkImageView> textureImageViews;
 	VkSampler textureSampler;
-	std::vector<VkBuffer> uniformBuffers;
-	std::vector<VkDeviceMemory> uniformBuffersMemory;
-	std::vector<void *> uniformBuffersMapped;
+	std::vector<std::vector<VkBuffer>> uniformBuffers;
+	std::vector<std::vector<VkDeviceMemory>> uniformBuffersMemory;
+	std::vector<std::vector<void *>> uniformBuffersMapped;
 
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
@@ -363,17 +363,22 @@ private:
 	}
 
 	void updateUniformBuffer(uint32_t currentImage) {
-		static auto startTime = std::chrono::high_resolution_clock::now();
+		for (size_t i = 0; i < MODELS.size(); i++) {
+			static auto startTime = std::chrono::high_resolution_clock::now();
 
-		auto currentTime = std::chrono::high_resolution_clock::now();
-		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+			auto currentTime = std::chrono::high_resolution_clock::now();
+			float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
-		UniformBufferObject ubo{};
-		ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
-		ubo.proj[1][1] *= -1;
-		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+			float sign = 1.0 ? (i & 1) == 0 : -1.0;
+			UniformBufferObject ubo{};
+			ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f * sign), glm::vec3(0.0f, 0.0f, 1.0f));
+			ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+			ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+			ubo.proj[1][1] *= -1;
+
+			void *bufMem = uniformBuffersMapped[currentFrame][i];
+			memcpy(bufMem, &ubo, sizeof(ubo));
+		}
 	}
 
 	void cleanup() {
@@ -387,8 +392,10 @@ private:
 		}
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			vkDestroyBuffer(device, uniformBuffers[i], nullptr);
-			vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
+			for (size_t j = 0; j < MODELS.size(); j++) {
+				vkDestroyBuffer(device, uniformBuffers[i][j], nullptr);
+				vkFreeMemory(device, uniformBuffersMemory[i][j], nullptr);
+			}
 		}
 
 		vkDestroyDescriptorPool(device, descriptorPool, nullptr);
@@ -537,6 +544,7 @@ private:
 		VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures{};
 		descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
 		descriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+		descriptorIndexingFeatures.shaderUniformBufferArrayNonUniformIndexing = VK_TRUE;
 		descriptorIndexingFeatures.runtimeDescriptorArray = VK_TRUE;
 		descriptorIndexingFeatures.descriptorBindingVariableDescriptorCount = VK_TRUE;
 		descriptorIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
@@ -684,7 +692,7 @@ private:
 		VkDescriptorSetLayoutBinding uboLayoutBinding;
 		uboLayoutBinding.binding = 0;
 		uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		uboLayoutBinding.descriptorCount = 1;
+		uboLayoutBinding.descriptorCount = static_cast<uint32_t>(MODELS.size());
 		uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
 		VkDescriptorSetLayoutBinding samplerLayoutBinding{};
@@ -840,9 +848,9 @@ private:
 		pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
 
 		VkPushConstantRange pushConstantRange{};
-		pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-		pushConstantRange.offset = 0;
+		pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT;
 		pushConstantRange.size = sizeof(uint32_t);
+		pushConstantRange.offset = 0;
 
 		pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 		pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
@@ -1021,10 +1029,15 @@ private:
 		}
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			VkDescriptorBufferInfo bufferInfo{};
-			bufferInfo.buffer = uniformBuffers[i];
-			bufferInfo.offset = 0;
-			bufferInfo.range = sizeof(UniformBufferObject);
+			std::vector<VkBuffer> buffers = uniformBuffers[i];
+			std::vector<VkDescriptorBufferInfo> bufferInfos;
+			for (const VkBuffer &buf : buffers) {
+				VkDescriptorBufferInfo bufferInfo{};
+				bufferInfo.buffer = buf;
+				bufferInfo.offset = 0;
+				bufferInfo.range = sizeof(UniformBufferObject);
+				bufferInfos.push_back(bufferInfo);
+			}
 
 			std::vector<VkDescriptorImageInfo> imageInfos;
 			for (const VkImageView &imageView : textureImageViews) {
@@ -1042,8 +1055,8 @@ private:
 			descriptorWrites[0].dstBinding = 0;
 			descriptorWrites[0].dstArrayElement = 0;
 			descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-			descriptorWrites[0].descriptorCount = 1;
-			descriptorWrites[0].pBufferInfo = &bufferInfo;
+			descriptorWrites[0].descriptorCount = static_cast<uint32_t>(MODELS.size());
+			descriptorWrites[0].pBufferInfo = bufferInfos.data();
 
 			descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			descriptorWrites[1].dstSet = descriptorSets[i];
@@ -1077,16 +1090,26 @@ private:
 	}
 
 	void createUniformBuffers() {
-		VkDeviceSize size = sizeof(UniformBufferObject);
+		for (const std::string &model : MODELS) {
+			std::vector<VkBuffer> curUniformBuffers;
+			std::vector<VkDeviceMemory> curUniformBuffersMemory;
+			std::vector<void *> curUniformBuffersMapped;
 
-		uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
-		uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
-		uniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
+			VkDeviceSize size = sizeof(UniformBufferObject);
 
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-			createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+			curUniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+			curUniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+			curUniformBuffersMapped.resize(MAX_FRAMES_IN_FLIGHT);
 
-			vkMapMemory(device, uniformBuffersMemory[i], 0, size, 0, &uniformBuffersMapped[i]);
+			for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+				createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, curUniformBuffers[i], curUniformBuffersMemory[i]);
+
+				vkMapMemory(device, curUniformBuffersMemory[i], 0, size, 0, &curUniformBuffersMapped[i]);
+			}
+
+			uniformBuffers.push_back(curUniformBuffers);
+			uniformBuffersMemory.push_back(curUniformBuffersMemory);
+			uniformBuffersMapped.push_back(curUniformBuffersMapped);
 		}
 	}
 
@@ -1519,7 +1542,7 @@ private:
 		for (size_t i = 0; i < MODELS.size(); i++) {
 			ModelInfo modelInfo = models[i];
 
-			vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uint32_t), &i);
+			vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(uint32_t), &i);
 
 			vkCmdDrawIndexed(commandBuffer, modelInfo.indexCount, 1, indexOffset, vertexOffset, 0);
 
